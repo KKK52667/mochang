@@ -1,5 +1,5 @@
-const CACHE='mochang-pages-v4-cloud-20261124';
-const ASSETS=['./','./index.html','./cloud.js','./manifest.webmanifest','./icon.svg'];
+const CACHE='mochang-pages-v5-install-icons';
+const ASSETS=['./','./index.html','./cloud.js','./manifest.webmanifest','./icon.svg','./icon-192.png','./icon-512.png'];
 const root=self.registration.scope;
 const url=path=>new URL(path,root).href;
 self.addEventListener('install',event=>{
