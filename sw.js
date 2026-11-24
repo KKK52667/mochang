@@ -1,4 +1,4 @@
-const CACHE='mochang-pages-v3-cloud-20261124';
+const CACHE='mochang-pages-v4-cloud-20261124';
 const ASSETS=['./','./index.html','./cloud.js','./manifest.webmanifest','./icon.svg'];
 const root=self.registration.scope;
 const url=path=>new URL(path,root).href;
