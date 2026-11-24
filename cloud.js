@@ -6,7 +6,7 @@ const get=k=>{try{return JSON.parse(localStorage.getItem(k))}catch{return null}}
 const put=(k,v)=>localStorage.setItem(k,JSON.stringify(v));
 const copy=o=>JSON.parse(JSON.stringify(o));
 const $=s=>document.querySelector(s);
-let config=get(C)||{},session=get(S),pending=get(P),api=null,revision=0,active=false,busy=false,conflict=false,timer=0,seq=0,modal,indicator,adapter,status='本机保存';
+let config=get(C)||{},session=get(S),pending=get(P),api=null,revision=0,active=false,busy=false,conflict=false,timer=0,seq=0,modal,indicator,adapter,status='本机保存',recovering=false;
 const usable=d=>Array.isArray(d?.projects)&&d.projects.length&&d.projects.every(p=>p&&typeof p.id==='string'&&Array.isArray(p.characters)&&Array.isArray(p.scenes));
 const nonempty=d=>!!d?.projects?.some(p=>p.characters?.length||p.scenes?.length||p.timeline?.length||p.relations?.length||p.notes?.length||p.summary||p.logline||(p.name&&p.name!=='未命名作品'));
 const safe=t=>String(t||'').replace(/[&<>"']/g,x=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[x]));
@@ -38,6 +38,7 @@ async function connect(){
  try{
   let who=await request('/auth/v1/user');session.user=who;put(S,session);
   let uid=who.id,cloud=await readRemote(),draft=get(P);
+  if(draft?.user_id!==uid&&usable(draft?.data)){backup(draft.data);pending=null;localStorage.removeItem(P)}
   if(draft?.user_id===uid&&usable(draft.data)){
    if((cloud?.revision||0)!==draft.revision){pending=draft;conflict=true;active=false;setStatus('版本冲突');open();message('云端和本机都有修改，已停止自动覆盖。请先导出备份并选择要保留的版本。',true);return}
    pending=draft;revision=draft.revision;active=true;conflict=false;apply(draft.data);setStatus('待同步');setTimeout(flush,160);return
@@ -114,6 +115,10 @@ function open(){
   el.innerHTML='<p>配置一次你自己的 Supabase 项目，之后即可使用邮箱登录。请先在数据库运行仓库中的 supabase/schema.sql。</p><label>Project URL</label><input id="cloudUrl" placeholder="https://xxxx.supabase.co" value="'+safe(config.url)+'"><label>Publishable / anon key（公开密钥）</label><input id="cloudKey" value="'+safe(config.key)+'" placeholder="sb_publishable_..." autocomplete="off"><p class="hint">不要填写 sb_secret_、service_role、数据库密码。公开的 publishable/anon Key 可以用于网页，但必须启用数据库 RLS。</p><div class="actions"><button id="cloudSet" class="primary">保存设置</button></div><p id="cloudMsg"></p>';
   $('#cloudSet').onclick=()=>{let url=$('#cloudUrl').value.trim().replace(/\/+$/,''),key=$('#cloudKey').value.trim();config={url,key};if(!valid()){message('URL 或公开 Key 格式不正确，请不要填写私密密钥。',true);return}try{put(C,config);open()}catch(e){message('本机无法保存设置：'+e.message,true)}};return
  }
+ if(recovering&&session?.access_token){
+  el.innerHTML='<p>密码重置链接已验证。请为账号设置新密码。</p><label>新密码</label><input id="cloudNewPassword" type="password" autocomplete="new-password"><div class="actions"><button class="primary" id="cloudUpdatePass">保存新密码</button></div><p id="cloudMsg"></p>';
+  wire('#cloudUpdatePass',async()=>{let password=$('#cloudNewPassword').value;if(password.length<6)throw Error('新密码至少6位');await request('/auth/v1/user','PUT',{password});recovering=false;await connect();open()});return
+ }
  if(!session?.access_token){
   el.innerHTML='<p>登录同一邮箱账号，即可在手机、电脑上继续写作。第一次登录会保护你现有的本机作品。</p><label>邮箱</label><input id="cloudEmail" type="email" autocomplete="username"><label>密码</label><input id="cloudPassword" type="password" autocomplete="current-password"><div class="actions"><button id="cloudLogin" class="primary">登录</button><button id="cloudSignup">注册</button><button id="cloudReset">找回密码</button><button id="cloudCfg">更换项目</button></div><p id="cloudMsg"></p><p class="hint">如果邮箱验证已开启，注册后需先验证邮件。你可以在 Supabase → Authentication 中管理用户。</p>';
   wire('#cloudLogin',login);wire('#cloudSignup',signup);
@@ -141,8 +146,9 @@ function init(helpers){
  let menu=$('#mobileMenu .mobile-menu-items');if(menu){let item=document.createElement('button');item.innerHTML='<span>☁</span> 云端账号与同步 <b>›</b>';item.onclick=()=>{document.getElementById('mobileMenu')?.classList.remove('open');document.getElementById('mobileMenuBackdrop').hidden=true;document.body.classList.remove('menu-open');open()};menu.append(item)}
  // 兼容邮箱验证及密码重置邮件带回的短期登录令牌。
  let hash=location.hash.startsWith('#')?new URLSearchParams(location.hash.slice(1)):null;
+ recovering=hash?.get('type')==='recovery';
  if(hash?.get('access_token')&&hash.get('refresh_token')){session={access_token:hash.get('access_token'),refresh_token:hash.get('refresh_token'),expires_at:Math.floor(Date.now()/1000)+Number(hash.get('expires_in')||3600)};put(S,session);history.replaceState(null,'',location.pathname+location.search)}
- if(valid()&&session?.access_token)connect();
+ if(valid()&&session?.access_token){if(recovering)open();else connect()}
  window.addEventListener('online',()=>{if(pending)flush();else refreshIfChanged()});
  window.addEventListener('focus',()=>{if(pending)flush();else refreshIfChanged()});
  setInterval(()=>{if(active&&!document.hidden){if(pending)flush();else refreshIfChanged()}},30000);
