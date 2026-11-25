@@ -8,7 +8,7 @@ const copy=o=>JSON.parse(JSON.stringify(o));
 const $=s=>document.querySelector(s);
 let config=get(C)||{},session=get(S),pending=get(P),api=null,revision=0,active=false,busy=false,conflict=false,timer=0,seq=0,modal,indicator,adapter,status='本机保存',recovering=false;
 const usable=d=>Array.isArray(d?.projects)&&d.projects.length&&d.projects.every(p=>p&&typeof p.id==='string'&&Array.isArray(p.characters)&&Array.isArray(p.scenes));
-const nonempty=d=>!!d?.projects?.some(p=>p.characters?.length||p.scenes?.length||p.timeline?.length||p.relations?.length||p.notes?.length||p.summary||p.logline||(p.name&&p.name!=='未命名作品'));
+const nonempty=d=>!!d?.projects?.some(p=>p.characters?.length||p.scenes?.length||p.timeline?.length||p.relations?.length||p.notes?.length||p.artAssets?.length||p.summary||p.logline||(p.name&&p.name!=='未命名作品'));
 const safe=t=>String(t||'').replace(/[&<>"']/g,x=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[x]));
 const valid=()=>/^https:\/\/[a-z0-9-]+\.supabase\.co$/i.test((config.url||'').trim())&&String(config.key||'').length>20&&!/service_role|sb_secret_/i.test(config.key);
 function message(t,err){let e=$('#cloudMsg');if(e){e.textContent=t;e.style.color=err?'#a63842':'#337860'}}
@@ -153,5 +153,23 @@ function init(helpers){
  window.addEventListener('focus',()=>{if(pending)flush();else refreshIfChanged()});
  setInterval(()=>{if(active&&!document.hidden){if(pending)flush();else refreshIfChanged()}},30000);
 }
-window.MochangCloud={init,queue,openPanel:open};
+
+const artReady=()=>!!(active&&!conflict&&session?.user?.id&&session?.access_token&&valid());
+async function artRequest(path,method,file,retry=true){
+ if(!artReady())throw Error('请先登录云端账号并完成同步');
+ const uid=session.user.id;
+ if(!String(path).startsWith(uid+'/')||!/^[-a-zA-Z0-9_/]+\.[a-z0-9]+$/.test(path))throw Error('图片路径无效或不属于当前账号');
+ if(session.expires_at&&Date.now()/1000>session.expires_at-60)await refresh();
+ const headers={apikey:config.key,Authorization:'Bearer '+session.access_token};
+ if(file){headers['Content-Type']=file.type;headers['x-upsert']='false'}
+ const url=config.url+'/storage/v1/object/'+(method==='GET'?'authenticated/':'')+'mochang-art/'+path.split('/').map(encodeURIComponent).join('/');
+ const response=await fetch(url,{method,headers,body:file||undefined,cache:'no-store'});
+ if(response.status===401&&retry&&session?.refresh_token){await refresh();return artRequest(path,method,file,false)}
+ if(!response.ok){let msg;try{msg=await response.json()}catch{}throw Error(msg?.message||msg?.error||'HTTP '+response.status)}
+ return method==='GET'?response.blob():path
+}
+async function artUpload(file){const ext={'image/png':'png','image/jpeg':'jpg','image/webp':'webp','image/gif':'gif','image/avif':'avif'}[file.type];if(!ext||file.size>20971520)throw Error('不支持的图片格式或超过20MB');if(!artReady())throw Error('请先登录云端账号');const path=session.user.id+'/'+crypto.randomUUID()+'.'+ext;return artRequest(path,'POST',file)}
+const artRead=path=>artRequest(path,'GET');
+
+window.MochangCloud={init,queue,openPanel:open,artReady,artUpload,artRead};
 })();
